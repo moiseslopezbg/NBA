@@ -51,7 +51,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 9px;
 <div class="panel">
 <div class="filters"><div class="field" style="min-width:min(100%,420px);flex:1"><label for="playerSelect">Seleccionar jugador</label><select id="playerSelect"><option value="">Cargando jugadores…</option></select></div></div>
 <div id="playerProfile" class="cards"><div class="card"><div class="statlabel">Puntos por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Rebotes por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Asistencias por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">PRA por partido</div><div class="stat">—</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>PRA</th></tr></thead><tbody id="playerTable"><tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Rival</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>PRA</th></tr></thead><tbody id="playerTable"><tr><td colspan="7" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr></tbody></table></div>
 </div>
 </section>
 <section class="section" id="teams">
@@ -118,8 +118,17 @@ function parsePlayerLog(payload){
    const st=Array.isArray(ev.stats)?ev.stats:[];
    const num=(i)=>{const raw=st[i];if(raw===undefined||raw===null||raw===''||raw==='--')return NaN;const v=Number(String(raw).split('-')[0]);return Number.isFinite(v)?v:NaN;};
    const date=ev.date||ev.eventDate||'';
+   // ESPN puede incluir el rival como objeto, texto o dentro de la competición.
+   const nameOf = x => typeof x === 'string' ? x : (x?.displayName||x?.shortDisplayName||x?.name||x?.abbreviation||x?.team?.displayName||x?.team?.abbreviation||'');
+   let opponent = nameOf(ev.opponent||ev.opponentTeam||ev.teamAgainst||ev.opponentName||ev.opp);
+   if (!opponent && Array.isArray(ev.competitions?.[0]?.competitors)) {
+     const competitors=ev.competitions[0].competitors;
+     const other=competitors.find(c=>c.homeAway && c.homeAway!==ev.homeAway) || competitors.find(c=>c.team?.id!==String(ev.teamId||''));
+     opponent=nameOf(other?.team||other);
+   }
+   if (!opponent) opponent=ev.opponent?.abbreviation||ev.opponent?.shortName||ev.oppAbbreviation||ev.opp||'—';
    const pts=num(iPts),reb=num(iReb),ast=num(iAst),three=num(i3),minutes=num(iMin);
-   return {date,PTS:pts,REB:reb,AST:ast,FG3M:three,PRA:[pts,reb,ast].every(Number.isFinite)?pts+reb+ast:NaN,minutes};
+   return {date,opponent,PTS:pts,REB:reb,AST:ast,FG3M:three,PRA:[pts,reb,ast].every(Number.isFinite)?pts+reb+ast:NaN,minutes};
  }).filter(g=>[g.PTS,g.REB,g.AST].some(Number.isFinite)).sort((a,b)=>new Date(b.date)-new Date(a.date));
 }
 async function fetchPlayerLog(p){
@@ -144,7 +153,7 @@ function scheduleVisibleStats(){
 }
 async function loadPlayers(){
  if(playersLoaded)return;playersLoaded=true;
- $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Cargando jugadores de ESPN…</td></tr>';
+ $('playerTable').innerHTML='<tr><td colspan="7" class="empty">Cargando jugadores de ESPN…</td></tr>';
  try{
    const data=await jsonFetch('/api/players');
    playerRows=(data.players||[]).map(p=>({...p,logs:[],logsLoaded:false}));
@@ -153,12 +162,12 @@ async function loadPlayers(){
    $('playerSelect').innerHTML='<option value="">Selecciona un jugador…</option>'+playerRows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.team||'NBA')}</option>`).join('');
    $('playerCount').textContent=playerRows.length;
    $('gameCount').textContent=games.length;
-   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
+   $('playerTable').innerHTML='<tr><td colspan="7" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
    $('playerSelect').value='';
    renderPlayers();
  }catch(e){
    $('playerSelect').innerHTML='<option value="">No se pudieron cargar los jugadores</option>';
-   $('playerTable').innerHTML=`<tr><td colspan="6" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que la carpeta <code>api</code> esté desplegada en Vercel.</td></tr>`;
+   $('playerTable').innerHTML=`<tr><td colspan="7" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que la carpeta <code>api</code> esté desplegada en Vercel.</td></tr>`;
    playersLoaded=false;
  }
 }
@@ -167,21 +176,21 @@ function renderPlayers(){
  const p=playerRows.find(x=>String(x.id)===String(selected));
  if(!p){
    $('playerProfile').innerHTML=[['Puntos por partido','—'],['Rebotes por partido','—'],['Asistencias por partido','—'],['PRA por partido','—']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
-   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
+   $('playerTable').innerHTML='<tr><td colspan="7" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
    return;
  }
  if(!p.logsLoaded){
    $('playerProfile').innerHTML=[['Puntos por partido','…'],['Rebotes por partido','…'],['Asistencias por partido','…'],['PRA por partido','…']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
-   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Cargando estadísticas reales de ESPN…</td></tr>';
+   $('playerTable').innerHTML='<tr><td colspan="7" class="empty">Cargando estadísticas reales de ESPN…</td></tr>';
    scheduleVisibleStats();return;
  }
- const logs=p.logs||[],recent=logs.slice(0,10);
- const average=key=>{const vals=logs.map(g=>g[key]).filter(Number.isFinite);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;};
+ const logs=p.logs||[],recent=logs.slice(0,20);
+ const average=key=>{const vals=recent.map(g=>g[key]).filter(Number.isFinite);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;};
  $('playerProfile').innerHTML=[
   ['Puntos por partido',average('PTS')],['Rebotes por partido',average('REB')],['Asistencias por partido',average('AST')],['PRA por partido',average('PRA')]
  ].map(([label,value])=>`<div class="card"><div class="statlabel">${label}</div><div class="stat">${typeof value==='number'?fmt(value):'—'}</div></div>`).join('');
- const seasonPill=document.querySelector('#players .topline .pill');if(seasonPill)seasonPill.textContent=p.statsSeason?`Datos ESPN · temporada ${p.statsSeason-1}-${String(p.statsSeason).slice(-2)} · últimos 10 partidos`:'PTS · REB · AST · PRA · triples';
- $('playerTable').innerHTML=recent.length?recent.map(g=>`<tr><td>${esc(g.date?new Date(g.date).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—')}</td><td>${fmt(g.PTS)}</td><td>${fmt(g.REB)}</td><td>${fmt(g.AST)}</td><td>${fmt(g.FG3M)}</td><td>${fmt(g.PRA)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">${esc(p.statsError||'ESPN no ha devuelto registros estadísticos para este jugador.')}</td></tr>`;
+ const seasonPill=document.querySelector('#players .topline .pill');if(seasonPill)seasonPill.textContent=p.statsSeason?`Datos ESPN · temporada ${p.statsSeason-1}-${String(p.statsSeason).slice(-2)} · últimos 20 partidos · varias temporadas`:'PTS · REB · AST · PRA · triples';
+ $('playerTable').innerHTML=recent.length?recent.map(g=>`<tr><td>${esc(g.date?new Date(g.date).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—')}</td><td>${esc(g.opponent||'—')}</td><td>${fmt(g.PTS)}</td><td>${fmt(g.REB)}</td><td>${fmt(g.AST)}</td><td>${fmt(g.FG3M)}</td><td>${fmt(g.PRA)}</td></tr>`).join(''):`<tr><td colspan="7" class="empty">${esc(p.statsError||'ESPN no ha devuelto registros estadísticos para este jugador.')}</td></tr>`;
 }
 function renderH2H(){const a=$('teamA').value,b=$('teamB').value;const ta=teamRows.find(t=>t.abbr===a),tb=teamRows.find(t=>t.abbr===b);$('h2hSummary').innerHTML=[['Equipo A',teamName(a)],['Equipo B',teamName(b)],['H2H en datos cargados','—'],['Fuente','ESPN']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat" style="font-size:20px">${esc(x[1])}</div></div>`).join('');$('h2hGames').innerHTML='<div class="empty">Para no presentar enfrentamientos inventados, el H2H histórico requiere conectar una fuente de resultados históricos NBA. Aquí se muestran únicamente partidos del calendario que haya devuelto ESPN.</div>';const arr=[ta,tb].filter(Boolean);$('h2hBars').innerHTML=arr.map(t=>`<p>${esc(t.name)}</p><div class="barrow"><span>Victorias</span><div class="bar"><i style="width:${Number.isFinite(t.wins)?Math.min(100,t.wins/82*100):0}%"></i></div><b>${Number.isFinite(t.wins)?t.wins:'—'}</b></div>`).join('')}
 async function loadOdds(){const key=$('oddsKey').value.trim();if(!key){$('oddsResults').innerHTML='<span class="error">Introduce tu API key para consultar las cuotas.</span>';return}$('oddsResults').textContent='Consultando…';try{const url=`https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=${encodeURIComponent(key)}&regions=${$('oddsRegion').value}&markets=h2h&oddsFormat=decimal`;const data=await jsonFetch(url);$('oddsResults').innerHTML=data.length?data.map(g=>`<div class="game"><div>${esc(g.away_team)} @ ${esc(g.home_team)}<div class="tiny">${dateLocal(g.commence_time)}</div></div><span>${(g.bookmakers||[]).length} casas</span></div>`).join(''):'No hay cuotas disponibles.'}catch(e){$('oddsResults').innerHTML=`<span class="error">No se pudieron cargar las cuotas (${esc(e.message)}). En producción, usa un backend para proteger la clave y evitar restricciones CORS.</span>`}}

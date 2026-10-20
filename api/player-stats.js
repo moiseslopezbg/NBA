@@ -22,8 +22,11 @@ export default async function handler(req, res) {
   if (!Number.isInteger(requestedSeason) || requestedSeason < 2000 || requestedSeason > 2100) return res.status(400).json({ error: 'Temporada no válida.' });
   const headers = { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' };
   const tried = [];
+  const allEvents = [];
+  let latestData = {};
   try {
-    // Años de finalización de temporada: 2027 = 2026-27, 2026 = 2025-26, etc.
+    // Recorre todas las temporadas consultadas y combina los partidos para obtener
+    // los 20 encuentros más recientes, aunque estén repartidos entre temporadas.
     for (const year of [requestedSeason, requestedSeason - 1, requestedSeason - 2, requestedSeason - 3, requestedSeason - 4]) {
       try {
         const url = `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${encodeURIComponent(id)}/gamelog?season=${year}`;
@@ -33,14 +36,18 @@ export default async function handler(req, res) {
         const events = extractEvents(data);
         tried.push({ season: year, status: response.status, events: events.length });
         if (events.length) {
-          // Devolver el payload normalizado para que el frontend siempre lea data.events.
-          const normalized = { ...data, events };
-          res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=43200');
-          return res.status(200).json({ athleteId: id, season: year, data: normalized, eventsFound: events.length, seasonsChecked: tried });
+          if (!latestData.labels && data.labels) latestData.labels = data.labels;
+          if (!latestData.displayNames && data.displayNames) latestData.displayNames = data.displayNames;
+          allEvents.push(...events.map(e => ({ ...e, _season: year })));
         }
       } catch (e) { tried.push({ season: year, error: String(e?.message || e), events: 0 }); }
     }
-    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1800');
+    const uniqueEvents = [...new Map(allEvents.map(e => [String(e.id || e.date || JSON.stringify(e.stats)), e])).values()]
+      .sort((a, b) => new Date(b.date || b.eventDate || 0) - new Date(a.date || a.eventDate || 0));
+    res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=43200');
+    if (uniqueEvents.length) {
+      return res.status(200).json({ athleteId: id, season: uniqueEvents[0]._season || requestedSeason, data: { ...latestData, events: uniqueEvents }, eventsFound: uniqueEvents.length, seasonsChecked: tried });
+    }
     return res.status(200).json({ athleteId: id, season: null, data: { labels: [], events: [] }, eventsFound: 0, seasonsChecked: tried, error: 'ESPN no devolvió registros por partido en las últimas cinco temporadas consultadas.' });
   } catch (error) {
     return res.status(502).json({ error: 'No se pudo obtener el registro de partidos de ESPN.', detail: String(error?.message || error), seasonsChecked: tried });
