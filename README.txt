@@ -1,9 +1,14 @@
-# NBA Analytics para Vercel
+NBA Analytics para Vercel
 
-## Despliegue
-1. Descomprime el proyecto.
-2. Sube `index.html` y la carpeta `api/` a la raíz del repositorio de GitHub.
-3. En Vercel, importa ese repositorio y despliega como proyecto estático con funciones serverless.
-4. No hace falta configurar Streamlit ni Python.
+DESPLIEGUE
+1. Descomprime el ZIP.
+2. Sube index.html y la carpeta api/ completa a la raíz del repositorio GitHub.
+3. Vuelve a desplegar el proyecto en Vercel.
+4. Abre la URL publicada en Vercel y pulsa Actualizar datos. No abras index.html como archivo local.
 
-La función `api/scoreboard.js` consulta ESPN desde el servidor de Vercel y evita que el navegador tenga que llamar directamente a ESPN, lo que soluciona los bloqueos CORS habituales. Si abres solo `index.html` como archivo local, la función de Vercel no estará disponible; publica el proyecto o usa el fallback directo.
+Funciones incluidas:
+- api/scoreboard.js: calendario/resultados de ESPN.
+- api/teams.js: lista de equipos desde el servidor.
+- api/players.js: plantillas de los 30 equipos desde el servidor, agregadas en una sola respuesta.
+
+La sección de jugadores muestra plantillas, pero aún no estadísticas de cada partido ni promedios/hit rates; esos valores no se inventan.
