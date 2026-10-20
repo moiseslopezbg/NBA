@@ -110,26 +110,33 @@ function parsePlayerLog(payload){
  const data=payload?.data||payload||{}, events=Array.isArray(data.events)?data.events:[];
  const labels=(data.labels||data.displayNames||[]).map(x=>String(x).toUpperCase());
  const rawIdx=(names,fallback)=>{for(const n of names){const i=labels.findIndex(x=>x===n||x.includes(n));if(i>=0)return i;}return fallback;};
- // ESPN labels pueden incluir DATE/OPP/RESULT, pero esos tres campos no están dentro de event.stats.
  const offset=(labels[0]==='DATE'||labels[0]==='GAME DATE')?3:0;
  const idx=(names,fallback)=>Math.max(0,rawIdx(names,fallback+offset)-offset);
  const iMin=idx(['MIN'],0),i3=idx(['3PT','3PM','3P'],2),iReb=idx(['REB'],4),iAst=idx(['AST'],5),iPts=idx(['PTS'],8);
+ const first=(...xs)=>xs.find(x=>x!==undefined&&x!==null&&String(x).trim()!=='');
+ const nameOf=x=>typeof x==='string'?x:(x?.displayName||x?.shortDisplayName||x?.fullName||x?.name||x?.abbreviation||x?.team?.displayName||x?.team?.shortDisplayName||x?.team?.name||x?.team?.abbreviation||'');
+ const validDate=x=>{if(x===undefined||x===null||x==='')return '';const d=new Date(x);return Number.isNaN(d.getTime())?'':d.toISOString();};
+ const dateOf=ev=>{
+   const candidates=[ev.date,ev.eventDate,ev.gameDate,ev.datePlayed,ev.startDate,ev.event?.date,ev.event?.eventDate,ev.event?.gameDate,ev.competition?.date,ev.competitions?.[0]?.date,ev.event?.competitions?.[0]?.date];
+   for(const x of candidates){const d=validDate(x);if(d)return d;}
+   // ESPN sometimes places the date in a nested object.
+   const walk=(o,depth=0)=>{if(!o||typeof o!=='object'||depth>4)return '';for(const [k,v] of Object.entries(o)){if(/^(date|eventdate|gamedate|startdate|dateplayed)$/i.test(k)){const d=validDate(v);if(d)return d;}if(v&&typeof v==='object'){const d=walk(v,depth+1);if(d)return d;}}return '';};
+   return walk(ev);
+ };
+ const opponentOf=ev=>{
+   const candidates=[ev.opponent,ev.opponentTeam,ev.teamAgainst,ev.opponentName,ev.opp,ev.event?.opponent,ev.event?.opponentTeam,ev.event?.teamAgainst,ev.event?.opponentName,ev.event?.opp,ev.competition?.opponent];
+   for(const x of candidates){const n=nameOf(x);if(n)return n;}
+   const competitions=[ev.competitions?.[0],ev.event?.competitions?.[0],ev.competition].filter(Boolean);
+   for(const comp of competitions){const competitors=comp.competitors||[];if(competitors.length){const ownId=String(ev.teamId||ev.team?.id||ev.athleteTeamId||ev.event?.teamId||'');const other=competitors.find(c=>ownId&&String(c.team?.id||c.id||'')!==ownId)||competitors.find(c=>c.homeAway&&c.homeAway!==ev.homeAway)||competitors[1];const n=nameOf(other?.team||other);if(n)return n;}}
+   return first(ev.opponent?.abbreviation,ev.opponent?.shortName,ev.oppAbbreviation,ev.event?.opponent?.abbreviation,ev.event?.opponent?.shortName,ev.opp,'—');
+ };
  return events.map(ev=>{
-   const st=Array.isArray(ev.stats)?ev.stats:[];
-   const num=(i)=>{const raw=st[i];if(raw===undefined||raw===null||raw===''||raw==='--')return NaN;const v=Number(String(raw).split('-')[0]);return Number.isFinite(v)?v:NaN;};
-   const date=ev.date||ev.eventDate||'';
-   // ESPN puede incluir el rival como objeto, texto o dentro de la competición.
-   const nameOf = x => typeof x === 'string' ? x : (x?.displayName||x?.shortDisplayName||x?.name||x?.abbreviation||x?.team?.displayName||x?.team?.abbreviation||'');
-   let opponent = nameOf(ev.opponent||ev.opponentTeam||ev.teamAgainst||ev.opponentName||ev.opp);
-   if (!opponent && Array.isArray(ev.competitions?.[0]?.competitors)) {
-     const competitors=ev.competitions[0].competitors;
-     const other=competitors.find(c=>c.homeAway && c.homeAway!==ev.homeAway) || competitors.find(c=>c.team?.id!==String(ev.teamId||''));
-     opponent=nameOf(other?.team||other);
-   }
-   if (!opponent) opponent=ev.opponent?.abbreviation||ev.opponent?.shortName||ev.oppAbbreviation||ev.opp||'—';
+   const st=Array.isArray(ev.stats)?ev.stats:(Array.isArray(ev.statistics)?ev.statistics:[]);
+   const num=i=>{const raw=st[i];if(raw===undefined||raw===null||raw===''||raw==='--')return NaN;const v=Number(String(raw).split('-')[0]);return Number.isFinite(v)?v:NaN;};
+   const date=dateOf(ev),opponent=opponentOf(ev);
    const pts=num(iPts),reb=num(iReb),ast=num(iAst),three=num(i3),minutes=num(iMin);
-   return {date,opponent,PTS:pts,REB:reb,AST:ast,FG3M:three,PRA:[pts,reb,ast].every(Number.isFinite)?pts+reb+ast:NaN,minutes};
- }).filter(g=>[g.PTS,g.REB,g.AST].some(Number.isFinite)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+   return {date,opponent,PTS:pts,REB:reb,AST:ast,FG3M:three,PRA:[pts,reb,ast].every(Number.isFinite)?pts+reb+ast:NaN,minutes,eventId:ev.id||ev.eventId||ev.event?.id||''};
+ }).filter(g=>[g.PTS,g.REB,g.AST].some(Number.isFinite)).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
 }
 async function fetchPlayerLog(p){
  const id=String(p.id||'');if(!id||p.logsLoaded||playerStatsPending.has(id))return;
