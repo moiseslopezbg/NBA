@@ -49,12 +49,9 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 9px;
 <section class="section" id="players">
 <div class="topline"><h2>Análisis de jugadores</h2><span class="pill">PTS · REB · AST · PRA · triples</span></div>
 <div class="panel">
-<div class="filters"><div class="field"><label for="playerSearch">Buscar jugador</label><input id="playerSearch" placeholder="Ej. Stephen Curry"></div><div class="field"><label for="playerTeam">Equipo</label><select id="playerTeam"><option value="">Todos los equipos</option></select></div><div class="field"><label for="playerStat">Estadística</label><select id="playerStat"><option value="PTS">Puntos (PTS)</option><option value="REB">Rebotes (REB)</option><option value="AST">Asistencias (AST)</option><option value="FG3M">Triples (3PM)</option><option value="PRA">PRA (PTS+REB+AST)</option></select></div><div class="field"><label for="minGames">Mínimo de partidos</label><select id="minGames"><option value="1">1+</option><option value="5" selected>5+</option><option value="10">10+</option></select></div></div>
-<div class="cards" id="playerStats">
-<div class="card"><div class="statlabel">Media de la selección</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Jugadores visibles</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Línea Over</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Acierto en muestra</div><div class="stat">—</div></div>
-</div>
-<div class="filters"><div class="field"><label for="line">Línea para calcular hit rate</label><input id="line" type="number" step="0.5" value="20.5"></div><div class="field"><label for="sample">Muestra</label><select id="sample"><option value="5">Últimos 5</option><option value="10" selected>Últimos 10</option><option value="20">Últimos 20</option></select></div></div>
-<div class="tablewrap"><table><thead><tr><th>Jugador</th><th>Equipo</th><th>Partidos</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>PRA</th><th>Over línea</th></tr></thead><tbody id="playerTable"><tr><td colspan="9" class="empty">Cargando estadísticas de jugadores…</td></tr></tbody></table></div>
+<div class="filters"><div class="field" style="min-width:min(100%,420px);flex:1"><label for="playerSelect">Seleccionar jugador</label><select id="playerSelect"><option value="">Cargando jugadores…</option></select></div></div>
+<div id="playerProfile" class="cards"><div class="card"><div class="statlabel">Puntos por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Rebotes por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">Asistencias por partido</div><div class="stat">—</div></div><div class="card"><div class="statlabel">PRA por partido</div><div class="stat">—</div></div></div>
+<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>PRA</th></tr></thead><tbody id="playerTable"><tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr></tbody></table></div>
 </div>
 </section>
 <section class="section" id="teams">
@@ -139,34 +136,53 @@ let visibleFetchTimer;
 function scheduleVisibleStats(){
  clearTimeout(visibleFetchTimer);
  visibleFetchTimer=setTimeout(async()=>{
-   const search=$('playerSearch').value.toLowerCase(),team=$('playerTeam').value;
-   const candidates=playerRows.filter(p=>p.name.toLowerCase().includes(search)&&(!team||p.team===team)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,100);
-   const todo=candidates.filter(p=>!p.logsLoaded&&!playerStatsPending.has(String(p.id))).slice(0,30);
-   for(let i=0;i<todo.length;i+=6){await Promise.all(todo.slice(i,i+6).map(fetchPlayerLog));}
- },250);
+   const selected=$('playerSelect')?.value;
+   const p=playerRows.find(x=>String(x.id)===String(selected));
+   if(p&&!p.logsLoaded&&!playerStatsPending.has(String(p.id)))await fetchPlayerLog(p);
+ },100);
 }
-async function loadPlayers(){if(playersLoaded)return;playersLoaded=true;$('playerTable').innerHTML='<tr><td colspan="9" class="empty">Cargando plantillas de ESPN…</td></tr>';
+async function loadPlayers(){
+ if(playersLoaded)return;playersLoaded=true;
+ $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Cargando jugadores de ESPN…</td></tr>';
  try{
    const data=await jsonFetch('/api/players');
-   playerRows=(data.players||[]).map(p=>({...p,gp:0,PTS:NaN,REB:NaN,AST:NaN,FG3M:NaN,PRA:NaN,logs:[],logsLoaded:false}));
-   if(!playerRows.length) throw new Error(data.error||'ESPN no devolvió jugadores');
-   $('playerCount').textContent=playerRows.length;$('gameCount').textContent=games.length;
-   renderPlayers();scheduleVisibleStats();
- }catch(e){$('playerTable').innerHTML=`<tr><td colspan="9" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que has desplegado la carpeta <code>api</code> completa en Vercel.</td></tr>`;playersLoaded=false}
+   playerRows=(data.players||[]).map(p=>({...p,logs:[],logsLoaded:false}));
+   if(!playerRows.length)throw new Error(data.error||'ESPN no devolvió jugadores');
+   playerRows.sort((a,b)=>a.name.localeCompare(b.name));
+   $('playerSelect').innerHTML='<option value="">Selecciona un jugador…</option>'+playerRows.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.team||'NBA')}</option>`).join('');
+   $('playerCount').textContent=playerRows.length;
+   $('gameCount').textContent=games.length;
+   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
+   $('playerSelect').value='';
+   renderPlayers();
+ }catch(e){
+   $('playerSelect').innerHTML='<option value="">No se pudieron cargar los jugadores</option>';
+   $('playerTable').innerHTML=`<tr><td colspan="6" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que la carpeta <code>api</code> esté desplegada en Vercel.</td></tr>`;
+   playersLoaded=false;
+ }
 }
 function renderPlayers(){
- const search=$('playerSearch').value.toLowerCase(),team=$('playerTeam').value,min=Number($('minGames').value),stat=$('playerStat').value,line=Number($('line').value),sample=Number($('sample').value);
- const rows=playerRows.filter(p=>p.name.toLowerCase().includes(search)&&(!team||p.team===team)).sort((a,b)=>a.name.localeCompare(b.name));
- const measured=rows.map(p=>{const logs=(p.logs||[]).slice(0,sample),vals=logs.map(g=>g[stat]).filter(Number.isFinite),avg=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN,hits=vals.filter(v=>v>line).length;return {...p,shownLogs:logs,shownGP:vals.length,shownAvg:avg,hits,hitRate:vals.length?hits/vals.length*100:NaN};}).filter(p=>p.shownGP>=min||!p.logsLoaded);
- const valid=measured.filter(p=>Number.isFinite(p.shownAvg)),hitCount=valid.reduce((n,p)=>n+p.hits,0),sampleCount=valid.reduce((n,p)=>n+p.shownGP,0);
- $('playerStats').innerHTML=[['Media de la selección',valid.length?fmt(valid.reduce((s,p)=>s+p.shownAvg,0)/valid.length):'—'],['Jugadores con datos',valid.length],['Línea Over',Number.isFinite(line)?line:'—'],['Acierto agregado',sampleCount?`${Math.round(hitCount/sampleCount*100)}%`:'—']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
- const display=measured.slice(0,100);
- $('playerTable').innerHTML=display.length?display.map(p=>`<tr><td>${esc(p.name)} <span class="tiny">${esc(p.position)}</span></td><td>${esc(p.team)}</td><td>${p.logsLoaded?p.logs.length:'…'}</td><td>${fmt(p.logsLoaded?avgKey(p,'PTS',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'REB',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'AST',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'FG3M',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'PRA',sample):NaN)}</td><td>${Number.isFinite(p.hitRate)?`${p.hits}/${p.shownGP} (${Math.round(p.hitRate)}%)`:p.logsLoaded?'—':'Cargando…'}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">No hay jugadores para estos filtros.</td></tr>';
- if(rows.some(p=>!p.logsLoaded))scheduleVisibleStats();
+ const selected=$('playerSelect')?.value;
+ const p=playerRows.find(x=>String(x.id)===String(selected));
+ if(!p){
+   $('playerProfile').innerHTML=[['Puntos por partido','—'],['Rebotes por partido','—'],['Asistencias por partido','—'],['PRA por partido','—']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
+   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Selecciona un jugador para ver sus estadísticas.</td></tr>';
+   return;
+ }
+ if(!p.logsLoaded){
+   $('playerProfile').innerHTML=[['Puntos por partido','…'],['Rebotes por partido','…'],['Asistencias por partido','…'],['PRA por partido','…']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
+   $('playerTable').innerHTML='<tr><td colspan="6" class="empty">Cargando estadísticas reales de ESPN…</td></tr>';
+   scheduleVisibleStats();return;
+ }
+ const logs=p.logs||[],recent=logs.slice(0,10);
+ const average=key=>{const vals=logs.map(g=>g[key]).filter(Number.isFinite);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;};
+ $('playerProfile').innerHTML=[
+  ['Puntos por partido',average('PTS')],['Rebotes por partido',average('REB')],['Asistencias por partido',average('AST')],['PRA por partido',average('PRA')]
+ ].map(([label,value])=>`<div class="card"><div class="statlabel">${label}</div><div class="stat">${typeof value==='number'?fmt(value):'—'}</div></div>`).join('');
+ $('playerTable').innerHTML=recent.length?recent.map(g=>`<tr><td>${esc(g.date?new Date(g.date).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—')}</td><td>${fmt(g.PTS)}</td><td>${fmt(g.REB)}</td><td>${fmt(g.AST)}</td><td>${fmt(g.FG3M)}</td><td>${fmt(g.PRA)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">${esc(p.statsError||'ESPN no ha devuelto registros estadísticos para este jugador.')}</td></tr>`;
 }
-function avgKey(p,key,sample){const vals=(p.logs||[]).slice(0,sample).map(g=>g[key]).filter(Number.isFinite);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN}
 function renderH2H(){const a=$('teamA').value,b=$('teamB').value;const ta=teamRows.find(t=>t.abbr===a),tb=teamRows.find(t=>t.abbr===b);$('h2hSummary').innerHTML=[['Equipo A',teamName(a)],['Equipo B',teamName(b)],['H2H en datos cargados','—'],['Fuente','ESPN']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat" style="font-size:20px">${esc(x[1])}</div></div>`).join('');$('h2hGames').innerHTML='<div class="empty">Para no presentar enfrentamientos inventados, el H2H histórico requiere conectar una fuente de resultados históricos NBA. Aquí se muestran únicamente partidos del calendario que haya devuelto ESPN.</div>';const arr=[ta,tb].filter(Boolean);$('h2hBars').innerHTML=arr.map(t=>`<p>${esc(t.name)}</p><div class="barrow"><span>Victorias</span><div class="bar"><i style="width:${Number.isFinite(t.wins)?Math.min(100,t.wins/82*100):0}%"></i></div><b>${Number.isFinite(t.wins)?t.wins:'—'}</b></div>`).join('')}
 async function loadOdds(){const key=$('oddsKey').value.trim();if(!key){$('oddsResults').innerHTML='<span class="error">Introduce tu API key para consultar las cuotas.</span>';return}$('oddsResults').textContent='Consultando…';try{const url=`https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=${encodeURIComponent(key)}&regions=${$('oddsRegion').value}&markets=h2h&oddsFormat=decimal`;const data=await jsonFetch(url);$('oddsResults').innerHTML=data.length?data.map(g=>`<div class="game"><div>${esc(g.away_team)} @ ${esc(g.home_team)}<div class="tiny">${dateLocal(g.commence_time)}</div></div><span>${(g.bookmakers||[]).length} casas</span></div>`).join(''):'No hay cuotas disponibles.'}catch(e){$('oddsResults').innerHTML=`<span class="error">No se pudieron cargar las cuotas (${esc(e.message)}). En producción, usa un backend para proteger la clave y evitar restricciones CORS.</span>`}}
-['playerSearch','playerTeam','playerStat','minGames','line','sample'].forEach(id=>$(id).addEventListener('input',()=>{renderPlayers();if(id==='playerSearch'||id==='playerTeam')scheduleVisibleStats()}));['conference','teamSort'].forEach(id=>$(id).addEventListener('change',renderTeams));['teamA','teamB'].forEach(id=>$(id).addEventListener('change',renderH2H));$('gameDate').addEventListener('change',loadGames);$('gameFilter').addEventListener('change',renderGames);$('reloadGames').addEventListener('click',loadGames);$('loadOdds').addEventListener('click',loadOdds);$('refresh').addEventListener('click',async()=>{ $('refresh').disabled=true;await loadGames();await loadTeams();$('refresh').disabled=false});teamOptions();$('gameDate').value=new Date().toLocaleDateString('en-CA');loadGames().then(()=>{$('gameCount').textContent=games.length});loadTeams().then(renderH2H);
+$('playerSelect').addEventListener('change',()=>{renderPlayers();scheduleVisibleStats()});['conference','teamSort'].forEach(id=>$(id).addEventListener('change',renderTeams));['teamA','teamB'].forEach(id=>$(id).addEventListener('change',renderH2H));$('gameDate').addEventListener('change',loadGames);$('gameFilter').addEventListener('change',renderGames);$('reloadGames').addEventListener('click',loadGames);$('loadOdds').addEventListener('click',loadOdds);$('refresh').addEventListener('click',async()=>{ $('refresh').disabled=true;await loadGames();await loadTeams();$('refresh').disabled=false});teamOptions();$('gameDate').value=new Date().toLocaleDateString('en-CA');loadGames().then(()=>{$('gameCount').textContent=games.length});loadTeams().then(renderH2H);
 </script>
 </body></html>

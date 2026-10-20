@@ -19,3 +19,6 @@ Estadísticas:
 - Se calculan promedios PTS, REB, AST, 3PM y PRA y el hit rate Over respecto a la línea elegida, usando los últimos 5/10/20 partidos disponibles.
 - Se intenta primero la temporada que termina en 2027; si no tiene partidos disponibles, se consulta 2026.
 - ESPN es una API pública no oficial y puede cambiar el formato o limitar las solicitudes. Los resultados pueden tardar en aparecer y no se muestran datos inventados.
+
+Interfaz de jugadores:
+- Se ha simplificado a un único selector de jugador. Al elegirlo aparecen sus promedios y los últimos 10 partidos disponibles, sin filtros adicionales.
