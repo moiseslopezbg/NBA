@@ -74,7 +74,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:11px 9px;
 const TEAMS=[
 ['ATL','Atlanta Hawks','East'],['BOS','Boston Celtics','East'],['BKN','Brooklyn Nets','East'],['CHA','Charlotte Hornets','East'],['CHI','Chicago Bulls','East'],['CLE','Cleveland Cavaliers','East'],['DET','Detroit Pistons','East'],['IND','Indiana Pacers','East'],['MIA','Miami Heat','East'],['MIL','Milwaukee Bucks','East'],['NYK','New York Knicks','East'],['ORL','Orlando Magic','East'],['PHI','Philadelphia 76ers','East'],['TOR','Toronto Raptors','East'],['WAS','Washington Wizards','East'],
 ['DAL','Dallas Mavericks','West'],['DEN','Denver Nuggets','West'],['GSW','Golden State Warriors','West'],['HOU','Houston Rockets','West'],['LAC','LA Clippers','West'],['LAL','Los Angeles Lakers','West'],['MEM','Memphis Grizzlies','West'],['MIN','Minnesota Timberwolves','West'],['NOP','New Orleans Pelicans','West'],['OKC','Oklahoma City Thunder','West'],['PHX','Phoenix Suns','West'],['POR','Portland Trail Blazers','West'],['SAC','Sacramento Kings','West'],['SAS','San Antonio Spurs','West'],['UTA','Utah Jazz','West']];
-const $=id=>document.getElementById(id);let playerRows=[],teamRows=[],games=[],playersLoaded=false;
+const $=id=>document.getElementById(id);let playerRows=[],teamRows=[],games=[],playersLoaded=false;const playerStatsPending=new Set();
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toFixed(1):'—';
 const teamName=abbr=>TEAMS.find(t=>t[0]===abbr)?.[1]||abbr||'—';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -109,17 +109,64 @@ async function loadTeams(){try{
  const list=data.sports?.[0]?.leagues?.[0]?.teams||[];
  teamRows=TEAMS.map(t=>{const match=list.find(x=>x.team?.abbreviation===t[0]);const team=match?.team||{};const rec=team.record?.items?.[0]?.stats||[];const val=n=>Number(rec.find(s=>s.name===n)?.value);return {abbr:t[0],name:t[1],conf:t[2],wins:val('wins'),losses:val('losses'),ppg:NaN,opp:NaN,diff:NaN}});renderTeams();}catch(e){$('teamTable').innerHTML=`<tr><td colspan="7" class="empty">No se pudieron cargar los datos de equipos (${esc(e.message)}).</td></tr>`}}
 function renderTeams(){const conf=$('conference').value,sort=$('teamSort').value;let rows=teamRows.filter(t=>!conf||t.conf===conf);rows.sort((a,b)=>(Number.isFinite(b[sort])?b[sort]:-Infinity)-(Number.isFinite(a[sort])?a[sort]:-Infinity));$('teamTable').innerHTML=rows.map(t=>`<tr><td><div class="team"><span class="logo">${t.abbr}</span>${esc(t.name)}</div></td><td>—</td><td>${fmt(t.ppg)}</td><td>${fmt(t.opp)}</td><td>${fmt(t.diff)}</td><td>${Number.isFinite(t.wins)?t.wins:'—'}</td><td>${Number.isFinite(t.losses)?t.losses:'—'}</td></tr>`).join('');$('teamCount').textContent=teamRows.length||30}
-async function loadPlayers(){if(playersLoaded)return;playersLoaded=true;$('playerTable').innerHTML='<tr><td colspan="9" class="empty">Buscando estadísticas…</td></tr>';
-// ESPN public core API provides active roster information; recent boxscores are used for game logs where available.
-try{
- const data=await jsonFetch('/api/players');
- playerRows=(data.players||[]).map(p=>({...p,gp:0,PTS:NaN,REB:NaN,AST:NaN,FG3M:NaN,PRA:NaN,logs:[]}));
- $('playerCount').textContent=playerRows.length;$('gameCount').textContent=games.length;renderPlayers();
- if(!playerRows.length) throw new Error(data.error||'ESPN no devolvió jugadores');
-}catch(e){$('playerTable').innerHTML=`<tr><td colspan="9" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que has desplegado la carpeta <code>api</code> completa en Vercel.</td></tr>`;playersLoaded=false}}
-function renderPlayers(){const search=$('playerSearch').value.toLowerCase(),team=$('playerTeam').value,min=Number($('minGames').value),stat=$('playerStat').value,line=Number($('line').value),sample=Number($('sample').value);const rows=playerRows.filter(p=>p.name.toLowerCase().includes(search)&&(!team||p.team===team)&&p.gp>=min).sort((a,b)=>(Number(b[stat])||-Infinity)-(Number(a[stat])||-Infinity));const valid=rows.filter(p=>Number.isFinite(p[stat]));const hit=valid.filter(p=>p[stat]>line).length;$('playerStats').innerHTML=[['Media de la selección',valid.length?fmt(valid.reduce((s,p)=>s+p[stat],0)/valid.length):'—'],['Jugadores visibles',rows.length],['Línea Over',Number.isFinite(line)?line:'—'],['Over en selección',valid.length?`${Math.round(hit/valid.length*100)}%`:'—']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');$('playerTable').innerHTML=rows.length?rows.slice(0,150).map(p=>`<tr><td>${esc(p.name)} <span class="tiny">${esc(p.position)}</span></td><td>${esc(p.team)}</td><td>${p.gp||'—'}</td><td>${fmt(p.PTS)}</td><td>${fmt(p.REB)}</td><td>${fmt(p.AST)}</td><td>${fmt(p.FG3M)}</td><td>${fmt(p.PRA)}</td><td>${Number.isFinite(p[stat])?(p[stat]>line?'<span class="badge">Over</span>':'<span class="muted">Under</span>'):'—'}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">La API pública de ESPN ofrece la plantilla, pero no aporta aquí un registro estadístico por partido fiable. Por eso no se inventan promedios. Puedes usar la web como base visual y conectar una fuente de estadísticas NBA para activar PTS/REB/AST e hit rates.</td></tr>'}
+function parsePlayerLog(payload){
+ const data=payload?.data||payload||{}, events=Array.isArray(data.events)?data.events:[];
+ const labels=(data.labels||data.displayNames||[]).map(x=>String(x).toUpperCase());
+ const rawIdx=(names,fallback)=>{for(const n of names){const i=labels.findIndex(x=>x===n||x.includes(n));if(i>=0)return i;}return fallback;};
+ // ESPN labels pueden incluir DATE/OPP/RESULT, pero esos tres campos no están dentro de event.stats.
+ const offset=(labels[0]==='DATE'||labels[0]==='GAME DATE')?3:0;
+ const idx=(names,fallback)=>Math.max(0,rawIdx(names,fallback+offset)-offset);
+ const iMin=idx(['MIN'],0),i3=idx(['3PT','3PM','3P'],2),iReb=idx(['REB'],4),iAst=idx(['AST'],5),iPts=idx(['PTS'],8);
+ return events.map(ev=>{
+   const st=Array.isArray(ev.stats)?ev.stats:[];
+   const num=(i)=>{const raw=st[i];if(raw===undefined||raw===null||raw===''||raw==='--')return NaN;const v=Number(String(raw).split('-')[0]);return Number.isFinite(v)?v:NaN;};
+   const date=ev.date||ev.eventDate||'';
+   const pts=num(iPts),reb=num(iReb),ast=num(iAst),three=num(i3),minutes=num(iMin);
+   return {date,PTS:pts,REB:reb,AST:ast,FG3M:three,PRA:[pts,reb,ast].every(Number.isFinite)?pts+reb+ast:NaN,minutes};
+ }).filter(g=>[g.PTS,g.REB,g.AST].some(Number.isFinite)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+}
+async function fetchPlayerLog(p){
+ const id=String(p.id||'');if(!id||p.logsLoaded||playerStatsPending.has(id))return;
+ playerStatsPending.add(id);
+ try{
+   const payload=await jsonFetch(`/api/player-stats?id=${encodeURIComponent(id)}&season=2027`);
+   p.logs=parsePlayerLog(payload);p.logsLoaded=true;p.statsSeason=payload.season;
+   if(p.logs.length){const recent=p.logs.slice(0,20);p.gp=p.logs.length;for(const key of ['PTS','REB','AST','FG3M','PRA']){const vals=recent.map(g=>g[key]).filter(Number.isFinite);p[key]=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;}}
+ }catch(e){p.logs=[];p.logsLoaded=true;p.statsError=e.message;}
+ finally{playerStatsPending.delete(id);renderPlayers();}
+}
+let visibleFetchTimer;
+function scheduleVisibleStats(){
+ clearTimeout(visibleFetchTimer);
+ visibleFetchTimer=setTimeout(async()=>{
+   const search=$('playerSearch').value.toLowerCase(),team=$('playerTeam').value;
+   const candidates=playerRows.filter(p=>p.name.toLowerCase().includes(search)&&(!team||p.team===team)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,100);
+   const todo=candidates.filter(p=>!p.logsLoaded&&!playerStatsPending.has(String(p.id))).slice(0,30);
+   for(let i=0;i<todo.length;i+=6){await Promise.all(todo.slice(i,i+6).map(fetchPlayerLog));}
+ },250);
+}
+async function loadPlayers(){if(playersLoaded)return;playersLoaded=true;$('playerTable').innerHTML='<tr><td colspan="9" class="empty">Cargando plantillas de ESPN…</td></tr>';
+ try{
+   const data=await jsonFetch('/api/players');
+   playerRows=(data.players||[]).map(p=>({...p,gp:0,PTS:NaN,REB:NaN,AST:NaN,FG3M:NaN,PRA:NaN,logs:[],logsLoaded:false}));
+   if(!playerRows.length) throw new Error(data.error||'ESPN no devolvió jugadores');
+   $('playerCount').textContent=playerRows.length;$('gameCount').textContent=games.length;
+   renderPlayers();scheduleVisibleStats();
+ }catch(e){$('playerTable').innerHTML=`<tr><td colspan="9" class="empty">No se pudieron cargar los jugadores (${esc(e.message)}). Comprueba que has desplegado la carpeta <code>api</code> completa en Vercel.</td></tr>`;playersLoaded=false}
+}
+function renderPlayers(){
+ const search=$('playerSearch').value.toLowerCase(),team=$('playerTeam').value,min=Number($('minGames').value),stat=$('playerStat').value,line=Number($('line').value),sample=Number($('sample').value);
+ const rows=playerRows.filter(p=>p.name.toLowerCase().includes(search)&&(!team||p.team===team)).sort((a,b)=>a.name.localeCompare(b.name));
+ const measured=rows.map(p=>{const logs=(p.logs||[]).slice(0,sample),vals=logs.map(g=>g[stat]).filter(Number.isFinite),avg=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN,hits=vals.filter(v=>v>line).length;return {...p,shownLogs:logs,shownGP:vals.length,shownAvg:avg,hits,hitRate:vals.length?hits/vals.length*100:NaN};}).filter(p=>p.shownGP>=min||!p.logsLoaded);
+ const valid=measured.filter(p=>Number.isFinite(p.shownAvg)),hitCount=valid.reduce((n,p)=>n+p.hits,0),sampleCount=valid.reduce((n,p)=>n+p.shownGP,0);
+ $('playerStats').innerHTML=[['Media de la selección',valid.length?fmt(valid.reduce((s,p)=>s+p.shownAvg,0)/valid.length):'—'],['Jugadores con datos',valid.length],['Línea Over',Number.isFinite(line)?line:'—'],['Acierto agregado',sampleCount?`${Math.round(hitCount/sampleCount*100)}%`:'—']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat">${x[1]}</div></div>`).join('');
+ const display=measured.slice(0,100);
+ $('playerTable').innerHTML=display.length?display.map(p=>`<tr><td>${esc(p.name)} <span class="tiny">${esc(p.position)}</span></td><td>${esc(p.team)}</td><td>${p.logsLoaded?p.logs.length:'…'}</td><td>${fmt(p.logsLoaded?avgKey(p,'PTS',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'REB',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'AST',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'FG3M',sample):NaN)}</td><td>${fmt(p.logsLoaded?avgKey(p,'PRA',sample):NaN)}</td><td>${Number.isFinite(p.hitRate)?`${p.hits}/${p.shownGP} (${Math.round(p.hitRate)}%)`:p.logsLoaded?'—':'Cargando…'}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">No hay jugadores para estos filtros.</td></tr>';
+ if(rows.some(p=>!p.logsLoaded))scheduleVisibleStats();
+}
+function avgKey(p,key,sample){const vals=(p.logs||[]).slice(0,sample).map(g=>g[key]).filter(Number.isFinite);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN}
 function renderH2H(){const a=$('teamA').value,b=$('teamB').value;const ta=teamRows.find(t=>t.abbr===a),tb=teamRows.find(t=>t.abbr===b);$('h2hSummary').innerHTML=[['Equipo A',teamName(a)],['Equipo B',teamName(b)],['H2H en datos cargados','—'],['Fuente','ESPN']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat" style="font-size:20px">${esc(x[1])}</div></div>`).join('');$('h2hGames').innerHTML='<div class="empty">Para no presentar enfrentamientos inventados, el H2H histórico requiere conectar una fuente de resultados históricos NBA. Aquí se muestran únicamente partidos del calendario que haya devuelto ESPN.</div>';const arr=[ta,tb].filter(Boolean);$('h2hBars').innerHTML=arr.map(t=>`<p>${esc(t.name)}</p><div class="barrow"><span>Victorias</span><div class="bar"><i style="width:${Number.isFinite(t.wins)?Math.min(100,t.wins/82*100):0}%"></i></div><b>${Number.isFinite(t.wins)?t.wins:'—'}</b></div>`).join('')}
 async function loadOdds(){const key=$('oddsKey').value.trim();if(!key){$('oddsResults').innerHTML='<span class="error">Introduce tu API key para consultar las cuotas.</span>';return}$('oddsResults').textContent='Consultando…';try{const url=`https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=${encodeURIComponent(key)}&regions=${$('oddsRegion').value}&markets=h2h&oddsFormat=decimal`;const data=await jsonFetch(url);$('oddsResults').innerHTML=data.length?data.map(g=>`<div class="game"><div>${esc(g.away_team)} @ ${esc(g.home_team)}<div class="tiny">${dateLocal(g.commence_time)}</div></div><span>${(g.bookmakers||[]).length} casas</span></div>`).join(''):'No hay cuotas disponibles.'}catch(e){$('oddsResults').innerHTML=`<span class="error">No se pudieron cargar las cuotas (${esc(e.message)}). En producción, usa un backend para proteger la clave y evitar restricciones CORS.</span>`}}
-['playerSearch','playerTeam','playerStat','minGames','line','sample'].forEach(id=>$(id).addEventListener('input',renderPlayers));['conference','teamSort'].forEach(id=>$(id).addEventListener('change',renderTeams));['teamA','teamB'].forEach(id=>$(id).addEventListener('change',renderH2H));$('gameDate').addEventListener('change',loadGames);$('gameFilter').addEventListener('change',renderGames);$('reloadGames').addEventListener('click',loadGames);$('loadOdds').addEventListener('click',loadOdds);$('refresh').addEventListener('click',async()=>{ $('refresh').disabled=true;await loadGames();await loadTeams();$('refresh').disabled=false});teamOptions();$('gameDate').value=new Date().toLocaleDateString('en-CA');loadGames().then(()=>{$('gameCount').textContent=games.length});loadTeams().then(renderH2H);
+['playerSearch','playerTeam','playerStat','minGames','line','sample'].forEach(id=>$(id).addEventListener('input',()=>{renderPlayers();if(id==='playerSearch'||id==='playerTeam')scheduleVisibleStats()}));['conference','teamSort'].forEach(id=>$(id).addEventListener('change',renderTeams));['teamA','teamB'].forEach(id=>$(id).addEventListener('change',renderH2H));$('gameDate').addEventListener('change',loadGames);$('gameFilter').addEventListener('change',renderGames);$('reloadGames').addEventListener('click',loadGames);$('loadOdds').addEventListener('click',loadOdds);$('refresh').addEventListener('click',async()=>{ $('refresh').disabled=true;await loadGames();await loadTeams();$('refresh').disabled=false});teamOptions();$('gameDate').value=new Date().toLocaleDateString('en-CA');loadGames().then(()=>{$('gameCount').textContent=games.length});loadTeams().then(renderH2H);
 </script>
 </body></html>

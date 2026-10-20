@@ -1,14 +1,21 @@
-NBA Analytics para Vercel
+NBA Analytics para Vercel — ESPN
+=================================
+Contenido:
+- index.html
+- api/scoreboard.js
+- api/teams.js
+- api/players.js
+- api/player-stats.js
 
-DESPLIEGUE
+Instalación:
 1. Descomprime el ZIP.
-2. Sube index.html y la carpeta api/ completa a la raíz del repositorio GitHub.
-3. Vuelve a desplegar el proyecto en Vercel.
-4. Abre la URL publicada en Vercel y pulsa Actualizar datos. No abras index.html como archivo local.
+2. Sube index.html y la carpeta api completa a la raíz del repositorio GitHub conectado a Vercel.
+3. Confirma que api/player-stats.js está dentro de la carpeta api.
+4. Haz un nuevo deployment en Vercel y abre la URL publicada.
 
-Funciones incluidas:
-- api/scoreboard.js: calendario/resultados de ESPN.
-- api/teams.js: lista de equipos desde el servidor.
-- api/players.js: plantillas de los 30 equipos desde el servidor, agregadas en una sola respuesta.
-
-La sección de jugadores muestra plantillas, pero aún no estadísticas de cada partido ni promedios/hit rates; esos valores no se inventan.
+Estadísticas:
+- Las plantillas se obtienen desde ESPN.
+- Para evitar cientos de solicitudes a la vez, los registros por partido se consultan bajo demanda para los primeros 30 jugadores que coincidan con la búsqueda/equipo.
+- Se calculan promedios PTS, REB, AST, 3PM y PRA y el hit rate Over respecto a la línea elegida, usando los últimos 5/10/20 partidos disponibles.
+- Se intenta primero la temporada que termina en 2027; si no tiene partidos disponibles, se consulta 2026.
+- ESPN es una API pública no oficial y puede cambiar el formato o limitar las solicitudes. Los resultados pueden tardar en aparecer y no se muestran datos inventados.
