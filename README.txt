@@ -22,3 +22,8 @@ Estadísticas:
 
 Interfaz de jugadores:
 - Se ha simplificado a un único selector de jugador. Al elegirlo aparecen sus promedios y los últimos 10 partidos disponibles, sin filtros adicionales.
+
+Corrección adicional de consulta estadística:
+- La API prueba hasta cinco temporadas: 2026-27, 2025-26, 2024-25, 2023-24 y 2022-23 (año de finalización).
+- Busca registros tanto en la lista principal events como en estructuras anidadas de ESPN y devuelve qué temporadas ha consultado si no encuentra partidos.
+- La interfaz muestra la temporada de los datos que realmente devolvió ESPN.

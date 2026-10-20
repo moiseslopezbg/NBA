@@ -128,6 +128,7 @@ async function fetchPlayerLog(p){
  try{
    const payload=await jsonFetch(`/api/player-stats?id=${encodeURIComponent(id)}&season=2027`);
    p.logs=parsePlayerLog(payload);p.logsLoaded=true;p.statsSeason=payload.season;
+   if(!p.logs.length)p.statsError=payload.error||'ESPN no devolvió estadísticas de partido para las cinco temporadas consultadas.';
    if(p.logs.length){const recent=p.logs.slice(0,20);p.gp=p.logs.length;for(const key of ['PTS','REB','AST','FG3M','PRA']){const vals=recent.map(g=>g[key]).filter(Number.isFinite);p[key]=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;}}
  }catch(e){p.logs=[];p.logsLoaded=true;p.statsError=e.message;}
  finally{playerStatsPending.delete(id);renderPlayers();}
@@ -179,6 +180,7 @@ function renderPlayers(){
  $('playerProfile').innerHTML=[
   ['Puntos por partido',average('PTS')],['Rebotes por partido',average('REB')],['Asistencias por partido',average('AST')],['PRA por partido',average('PRA')]
  ].map(([label,value])=>`<div class="card"><div class="statlabel">${label}</div><div class="stat">${typeof value==='number'?fmt(value):'—'}</div></div>`).join('');
+ const seasonPill=document.querySelector('#players .topline .pill');if(seasonPill)seasonPill.textContent=p.statsSeason?`Datos ESPN · temporada ${p.statsSeason-1}-${String(p.statsSeason).slice(-2)} · últimos 10 partidos`:'PTS · REB · AST · PRA · triples';
  $('playerTable').innerHTML=recent.length?recent.map(g=>`<tr><td>${esc(g.date?new Date(g.date).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—')}</td><td>${fmt(g.PTS)}</td><td>${fmt(g.REB)}</td><td>${fmt(g.AST)}</td><td>${fmt(g.FG3M)}</td><td>${fmt(g.PRA)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">${esc(p.statsError||'ESPN no ha devuelto registros estadísticos para este jugador.')}</td></tr>`;
 }
 function renderH2H(){const a=$('teamA').value,b=$('teamB').value;const ta=teamRows.find(t=>t.abbr===a),tb=teamRows.find(t=>t.abbr===b);$('h2hSummary').innerHTML=[['Equipo A',teamName(a)],['Equipo B',teamName(b)],['H2H en datos cargados','—'],['Fuente','ESPN']].map(x=>`<div class="card"><div class="statlabel">${x[0]}</div><div class="stat" style="font-size:20px">${esc(x[1])}</div></div>`).join('');$('h2hGames').innerHTML='<div class="empty">Para no presentar enfrentamientos inventados, el H2H histórico requiere conectar una fuente de resultados históricos NBA. Aquí se muestran únicamente partidos del calendario que haya devuelto ESPN.</div>';const arr=[ta,tb].filter(Boolean);$('h2hBars').innerHTML=arr.map(t=>`<p>${esc(t.name)}</p><div class="barrow"><span>Victorias</span><div class="bar"><i style="width:${Number.isFinite(t.wins)?Math.min(100,t.wins/82*100):0}%"></i></div><b>${Number.isFinite(t.wins)?t.wins:'—'}</b></div>`).join('')}
